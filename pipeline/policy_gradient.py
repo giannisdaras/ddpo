@@ -1,12 +1,14 @@
 import json
 import os
 import time
+import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import jax
 import jax.numpy as jnp
 import optax
 import transformers
+import wandb
 
 from functools import partial
 from concurrent import futures
@@ -47,6 +49,15 @@ def main():
     transformers.set_seed(args.seed)
     compilation_cache.initialize_cache(args.cache)  # only works on TPU
     utils.init_logging("policy_gradient", args.verbose)
+
+    if jax.process_index() == 0:
+        run_name = f"ddpo-jax-{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        wandb.init(
+            project="ddpo-jax-trc",
+            entity="dglab",
+            name=run_name,
+            config=args._dict,
+        )
 
     rng = jax.random.PRNGKey(args.seed)
     n_devices = jax.local_device_count()
@@ -352,6 +363,13 @@ def main():
         mean_rewards.append(np.mean(rewards))
         std_rewards.append(np.std(rewards))
 
+        if jax.process_index() == 0:
+            wandb.log({
+                "reward/mean": float(np.mean(rewards)),
+                "reward/std": float(np.std(rewards)),
+                "epoch": epoch,
+            })
+
         # save data for future analysis
         np.save(
             utils.fs.join_and_create(localpath, f"rewards/{worker_id}_{epoch}.npy"),
@@ -447,6 +465,11 @@ def main():
             all_infos = jax.tree_map(lambda *xs: np.stack(xs), *all_infos)
             print(f"mean info: {jax.tree_map(np.mean, all_infos)}")
             if jax.process_index() == 0:
+                wandb.log({
+                    **{f"train/{k}": float(np.mean(v)) for k, v in all_infos.items()},
+                    "epoch": epoch,
+                    "inner_epoch": inner_epoch,
+                })
                 np.save(
                     utils.fs.join_and_create(
                         localpath, f"train_info/{worker_id}_{epoch}_{inner_epoch}.npy"

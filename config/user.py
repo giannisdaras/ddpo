@@ -1,1 +1,1 @@
-bucket = "gs://my-bucket"
+bucket = "gs://ddpo-trc-gdaras"
