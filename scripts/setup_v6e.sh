@@ -16,8 +16,9 @@ pip install -U pip
 pip install "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 
 echo "=== Installing ML deps ==="
-# flax 0.6.x is required by diffusers 0.12.1 (uses flax.training.checkpoints, jax_utils)
-pip install "flax==0.6.11" "optax==0.1.5"
+# flax 0.7.x: last series that still has jax_utils + training.checkpoints
+# (removed in 0.8.0); compatible with JAX 0.9 on v6e
+pip install "flax==0.7.5" "optax==0.1.5"
 pip install "numpy<2"
 pip install "diffusers[flax]==0.12.1" "transformers==4.28.1" "huggingface_hub==0.16.4"
 # CPU torch for reward models (CLIP aesthetic scorer etc.)
