@@ -43,10 +43,16 @@ except ImportError:
     class jax_utils:  # noqa: N801
         @staticmethod
         def replicate(x):
-            return jax.device_put_replicated(x, jax.local_devices())
+            # Return a numpy broadcast so pmap handles device placement (CPU→TPU)
+            # consistent with shard(), which also returns a CPU array
+            n = jax.local_device_count()
+            return jax.tree_util.tree_map(
+                lambda a: np.broadcast_to(np.array(a)[None], (n,) + np.array(a).shape),
+                x,
+            )
         @staticmethod
         def unreplicate(x):
-            return jax.tree_util.tree_map(lambda t: t[0], x)
+            return jax.tree_util.tree_map(lambda t: np.array(t)[0], x)
 
 try:
     from flax.training.checkpoints import save_checkpoint_multiprocess
@@ -65,11 +71,9 @@ try:
 except ImportError:
     def shard(xs):
         n = jax.local_device_count()
-        devices = jax.local_devices()
-        def _shard_one(x):
-            x_r = np.array(x).reshape((n, -1) + x.shape[1:])
-            return jax.device_put_sharded([x_r[i] for i in range(n)], devices)
-        return jax.tree_util.tree_map(_shard_one, xs)
+        return jax.tree_util.tree_map(
+            lambda x: np.array(x).reshape((n, -1) + x.shape[1:]), xs
+        )
 # ---- end shims ----
 
 

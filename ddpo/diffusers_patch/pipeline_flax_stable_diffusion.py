@@ -24,8 +24,9 @@ from flax.core.frozen_dict import FrozenDict
 try:
     from flax.jax_utils import unreplicate
 except ImportError:
+    import numpy as _np2
     def unreplicate(x):
-        return jax.tree_util.tree_map(lambda t: t[0], x)
+        return jax.tree_util.tree_map(lambda t: _np2.array(t)[0], x)
 
 try:
     from flax.training.common_utils import shard
@@ -33,11 +34,9 @@ except ImportError:
     import numpy as _np
     def shard(xs):
         n = jax.local_device_count()
-        devices = jax.local_devices()
-        def _shard_one(x):
-            x_r = _np.array(x).reshape((n, -1) + x.shape[1:])
-            return jax.device_put_sharded([x_r[i] for i in range(n)], devices)
-        return jax.tree_util.tree_map(_shard_one, xs)
+        return jax.tree_util.tree_map(
+            lambda x: _np.array(x).reshape((n, -1) + x.shape[1:]), xs
+        )
 from packaging import version
 from PIL import Image
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, FlaxCLIPTextModel
