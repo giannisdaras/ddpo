@@ -5,7 +5,7 @@ set -e
 
 echo "=== Installing system deps ==="
 sudo apt-get update -q
-sudo apt-get install -y -q tmux git python3-pip python3-venv ffmpeg
+sudo apt-get install -y -q tmux git python3-pip python3-venv ffmpeg cargo
 
 echo "=== Creating virtualenv ==="
 python3 -m venv ~/ddpo-env
