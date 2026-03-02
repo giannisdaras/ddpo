@@ -27,7 +27,7 @@ pip install "torch==2.2.0+cpu" "torchvision==0.17.0+cpu" \
 echo "=== Installing utilities ==="
 pip install imageio==2.22.4 tqdm matplotlib h5py
 pip install "datasets==2.7.1" gitpython google-cloud-storage gcsfs fsspec
-pip install "typed-argument-parser==1.7.2" wandb
+pip install "typed-argument-parser==1.7.2" wandb inflect dill pytz setuptools
 
 echo "=== Cloning fork ==="
 if [ ! -d ~/ddpo-jax ]; then
