@@ -2,7 +2,13 @@ from functools import partial
 import numpy as np
 import jax.numpy as jnp
 import jax
-from flax.jax_utils import replicate, unreplicate
+try:
+    from flax.jax_utils import replicate, unreplicate
+except ImportError:
+    def replicate(x):
+        return jax.device_put_replicated(x, jax.local_devices())
+    def unreplicate(x):
+        return jax.tree_util.tree_map(lambda t: t[0], x)
 
 
 @partial(jax.pmap, axis_name="pmap", donate_argnums=0)

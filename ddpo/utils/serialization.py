@@ -17,7 +17,16 @@ import transformers
 import pdb
 
 from collections import namedtuple
-from flax.training.checkpoints import restore_checkpoint
+try:
+    from flax.training.checkpoints import restore_checkpoint
+except ImportError:
+    def restore_checkpoint(ckpt_dir, target):
+        import glob as _glob
+        files = sorted(_glob.glob(os.path.join(ckpt_dir, "checkpoint_*.pkl")))
+        if not files:
+            raise FileNotFoundError(f"No checkpoints found in {ckpt_dir}")
+        with open(files[-1], "rb") as _f:
+            return pickle.load(_f)
 
 from ddpo.diffusers_patch.pipeline_flax_stable_diffusion import (
     FlaxStableDiffusionPipeline,

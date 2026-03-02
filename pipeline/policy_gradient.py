@@ -12,9 +12,7 @@ import wandb
 
 from functools import partial
 from concurrent import futures
-from flax import jax_utils
-from flax.training.common_utils import shard
-from flax.training.checkpoints import save_checkpoint_multiprocess
+from flax.linen import Module as _FlaxModule  # noqa: ensure flax linen is importable
 from jax.experimental import multihost_utils
 from jax.experimental.compilation_cache import compilation_cache
 import jax.profiler
@@ -29,6 +27,38 @@ from ddpo.diffusers_patch.scheduling_ddim_flax import FlaxDDIMScheduler
 from ddpo.utils.serialization import is_dtype, get_dtype, to_dtype, load_flax_model
 import tqdm
 import matplotlib.pyplot as plt
+
+# ---- Compatibility shims for flax >= 0.8 which removed jax_utils / training.checkpoints ----
+try:
+    from flax import jax_utils
+except ImportError:
+    class jax_utils:  # noqa: N801
+        @staticmethod
+        def replicate(x):
+            return jax.device_put_replicated(x, jax.local_devices())
+        @staticmethod
+        def unreplicate(x):
+            return jax.tree_util.tree_map(lambda t: t[0], x)
+
+try:
+    from flax.training.checkpoints import save_checkpoint_multiprocess
+except ImportError:
+    import pickle
+    def save_checkpoint_multiprocess(ckpt_dir, target, step, keep=None, overwrite=True):
+        if jax.process_index() != 0:
+            return
+        os.makedirs(ckpt_dir, exist_ok=True)
+        path = os.path.join(ckpt_dir, f"checkpoint_{step}.pkl")
+        with open(path, "wb") as f:
+            pickle.dump(jax.device_get(target), f)
+
+try:
+    from flax.training.common_utils import shard
+except ImportError:
+    def shard(xs):
+        n = jax.local_device_count()
+        return jax.tree_util.tree_map(lambda x: x.reshape((n, -1) + x.shape[1:]), xs)
+# ---- end shims ----
 
 
 class Parser(utils.Parser):

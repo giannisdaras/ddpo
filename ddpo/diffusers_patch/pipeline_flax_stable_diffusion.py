@@ -21,8 +21,18 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from flax.core.frozen_dict import FrozenDict
-from flax.jax_utils import unreplicate
-from flax.training.common_utils import shard
+try:
+    from flax.jax_utils import unreplicate
+except ImportError:
+    def unreplicate(x):
+        return jax.tree_util.tree_map(lambda t: t[0], x)
+
+try:
+    from flax.training.common_utils import shard
+except ImportError:
+    def shard(xs):
+        n = jax.local_device_count()
+        return jax.tree_util.tree_map(lambda x: x.reshape((n, -1) + x.shape[1:]), xs)
 from packaging import version
 from PIL import Image
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, FlaxCLIPTextModel
