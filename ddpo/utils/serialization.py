@@ -12,6 +12,12 @@ import flax
 import matplotlib.pyplot as plt
 from PIL import Image
 import gcsfs
+
+# huggingface_hub >= 0.17 removed cached_download; patch before importing diffusers
+import huggingface_hub as _hfhub
+if not hasattr(_hfhub, 'cached_download'):
+    _hfhub.cached_download = _hfhub.hf_hub_download
+
 import diffusers
 import transformers
 import pdb
