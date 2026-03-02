@@ -1,4 +1,5 @@
 from . import user
+from .base import base
 
 # DDPO policy-gradient config tuned for TRC v6e-8 (8 chips, single host)
 # sample_batch_size=4 per device x 8 devices = 32 images/batch
