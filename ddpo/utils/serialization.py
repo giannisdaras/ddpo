@@ -18,6 +18,10 @@ import huggingface_hub as _hfhub
 if not hasattr(_hfhub, 'cached_download'):
     _hfhub.cached_download = _hfhub.hf_hub_download
 
+# jax.random.KeyArray was removed in JAX 0.9 (replaced by jax.Array)
+if not hasattr(jax.random, 'KeyArray'):
+    jax.random.KeyArray = jax.Array
+
 import diffusers
 import transformers
 import pdb
