@@ -65,7 +65,11 @@ try:
 except ImportError:
     def shard(xs):
         n = jax.local_device_count()
-        return jax.tree_util.tree_map(lambda x: x.reshape((n, -1) + x.shape[1:]), xs)
+        devices = jax.local_devices()
+        def _shard_one(x):
+            x_r = np.array(x).reshape((n, -1) + x.shape[1:])
+            return jax.device_put_sharded([x_r[i] for i in range(n)], devices)
+        return jax.tree_util.tree_map(_shard_one, xs)
 # ---- end shims ----
 
 

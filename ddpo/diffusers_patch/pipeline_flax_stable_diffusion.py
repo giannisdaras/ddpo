@@ -30,9 +30,14 @@ except ImportError:
 try:
     from flax.training.common_utils import shard
 except ImportError:
+    import numpy as _np
     def shard(xs):
         n = jax.local_device_count()
-        return jax.tree_util.tree_map(lambda x: x.reshape((n, -1) + x.shape[1:]), xs)
+        devices = jax.local_devices()
+        def _shard_one(x):
+            x_r = _np.array(x).reshape((n, -1) + x.shape[1:])
+            return jax.device_put_sharded([x_r[i] for i in range(n)], devices)
+        return jax.tree_util.tree_map(_shard_one, xs)
 from packaging import version
 from PIL import Image
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, FlaxCLIPTextModel
