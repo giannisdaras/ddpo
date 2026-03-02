@@ -67,13 +67,24 @@ except ImportError:
             pickle.dump(jax.device_get(target), f)
 
 try:
-    from flax.training.common_utils import shard
+    from flax.training.common_utils import shard as _base_shard
 except ImportError:
-    def shard(xs):
+    def _base_shard(xs):
         n = jax.local_device_count()
         return jax.tree_util.tree_map(
             lambda x: np.array(x).reshape((n, -1) + x.shape[1:]), xs
         )
+
+# Override shard to use device_put_sharded so outputs are on TPU devices,
+# consistent with jax_utils.replicate (device_put_replicated). In JAX 0.9,
+# pmap rejects mixing CPU and TPU inputs in the same call.
+def shard(xs):
+    n = jax.local_device_count()
+    devs = jax.local_devices()
+    leaves, treedef = jax.tree_util.tree_flatten(xs)
+    reshaped = [np.array(l).reshape((n, -1) + l.shape[1:]) for l in leaves]
+    sharded = [jax.device_put_sharded([r[i] for i in range(n)], devs) for r in reshaped]
+    return treedef.unflatten(sharded)
 # ---- end shims ----
 
 
