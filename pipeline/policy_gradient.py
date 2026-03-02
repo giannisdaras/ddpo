@@ -80,7 +80,13 @@ p_train_step = jax.pmap(
 def main():
     args = Parser().parse_args("pg")
     transformers.set_seed(args.seed)
-    compilation_cache.initialize_cache(args.cache)  # only works on TPU
+    try:
+        compilation_cache.initialize_cache(args.cache)  # only works on older JAX
+    except AttributeError:
+        try:
+            jax.config.update("jax_compilation_cache_dir", args.cache)
+        except Exception:
+            pass  # compilation cache is optional
     utils.init_logging("policy_gradient", args.verbose)
 
     if jax.process_index() == 0:

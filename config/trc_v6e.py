@@ -12,7 +12,6 @@ trc_v6e_compressed = {
         "filter_field": "jpeg",
     },
     "pg": {
-        "savepath": f"{user.bucket}/runs/trc-v6e-compressed",
         "sample_batch_size": 4,
         "num_sample_batches_per_epoch": 2,
         "train_batch_size": 1,
