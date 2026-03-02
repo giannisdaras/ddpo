@@ -1,6 +1,11 @@
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
+import jax
+# jax.tree_map removed in JAX 0.4.25+; add shim before any other imports use it
+if not hasattr(jax, 'tree_map'):
+    jax.tree_map = jax.tree_util.tree_map
+
 import json
 import os
 import time
