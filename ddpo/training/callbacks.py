@@ -344,6 +344,99 @@ def thumbnail_fn(devices=DEVICES, jit=True):
     return _wrapper
 
 
+def brightness_fn(devices=DEVICES, jit=False):
+    """Maximize mean luminance (ITU-R BT.601 Y channel)."""
+    assert not jit
+
+    def _fn(images, prompts, metadata):
+        del prompts, metadata
+        # images: [N, H, W, 3] float32 in [0, 1]
+        luminance = 0.299 * images[..., 0] + 0.587 * images[..., 1] + 0.114 * images[..., 2]
+        scores = luminance.mean(axis=(1, 2))
+        return scores[:, None], {}
+
+    return _fn
+
+
+def saturation_fn(devices=DEVICES, jit=False):
+    """Maximize mean HSV saturation."""
+    assert not jit
+
+    def _fn(images, prompts, metadata):
+        del prompts, metadata
+        # images: [N, H, W, 3] float32 in [0, 1]
+        r, g, b = images[..., 0], images[..., 1], images[..., 2]
+        cmax = np.maximum(np.maximum(r, g), b)
+        cmin = np.minimum(np.minimum(r, g), b)
+        delta = cmax - cmin
+        saturation = np.where(cmax > 1e-6, delta / cmax, 0.0)
+        scores = saturation.mean(axis=(1, 2))
+        return scores[:, None], {}
+
+    return _fn
+
+
+def entropy_fn(devices=DEVICES, jit=False):
+    """Maximize Shannon entropy of pixel value distribution."""
+    assert not jit
+
+    def _fn(images, prompts, metadata):
+        del prompts, metadata
+        # images: [N, H, W, 3] float32 in [0, 1]
+        images_uint8 = (images * 255).clip(0, 255).astype(np.uint8)
+        scores = []
+        for img in images_uint8:
+            flat = img.reshape(-1)
+            counts = np.bincount(flat, minlength=256).astype(np.float64)
+            probs = counts / counts.sum()
+            probs = probs[probs > 0]
+            ent = -np.sum(probs * np.log2(probs))
+            scores.append(ent)
+        return np.array(scores)[:, None], {}
+
+    return _fn
+
+
+def hue_diversity_fn(devices=DEVICES, jit=False):
+    """Maximize hue diversity: entropy of the hue histogram over saturated pixels."""
+    assert not jit
+
+    def _fn(images, prompts, metadata):
+        del prompts, metadata
+        # images: [N, H, W, 3] float32 in [0, 1]
+        scores = []
+        for img in images:
+            r, g, b = img[..., 0], img[..., 1], img[..., 2]
+            cmax = np.maximum(np.maximum(r, g), b)
+            cmin = np.minimum(np.minimum(r, g), b)
+            delta = cmax - cmin
+
+            hue = np.zeros_like(r)
+            mask = delta > 1e-6
+            mask_r = mask & (cmax == r)
+            mask_g = mask & (cmax == g)
+            mask_b = mask & (cmax == b)
+            hue[mask_r] = (60.0 * ((g[mask_r] - b[mask_r]) / delta[mask_r])) % 360
+            hue[mask_g] = (60.0 * ((b[mask_g] - r[mask_g]) / delta[mask_g]) + 120)
+            hue[mask_b] = (60.0 * ((r[mask_b] - g[mask_b]) / delta[mask_b]) + 240)
+            hue = hue % 360
+
+            sat = np.where(cmax > 1e-6, delta / cmax, 0.0)
+            sat_mask = sat > 0.2
+            if sat_mask.any():
+                hue_bins = (hue[sat_mask] * 35.999 / 360).astype(np.int32).clip(0, 35)
+                counts = np.bincount(hue_bins, minlength=36).astype(np.float64)
+            else:
+                counts = np.ones(36, dtype=np.float64)
+            probs = counts / (counts.sum() + 1e-8)
+            probs = probs[probs > 0]
+            ent = -np.sum(probs * np.log2(probs))
+            scores.append(ent)
+        return np.array(scores)[:, None], {}
+
+    return _fn
+
+
 def arange_fn(devices=DEVICES, jit=False):
     assert not jit
 
@@ -557,6 +650,10 @@ callback_fns = {
     "mirror": mirror_symmetry_fn,
     "mirror_corr": mirror_correlation_fn,
     "thumbnail": thumbnail_fn,
+    "brightness": brightness_fn,
+    "saturation": saturation_fn,
+    "entropy": entropy_fn,
+    "hue_diversity": hue_diversity_fn,
     "arange": arange_fn,
     "vqa": vqa_satisfaction,
     "llava_vqa": llava_vqa_satisfaction,
