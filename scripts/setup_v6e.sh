@@ -21,7 +21,8 @@ pip install flax "optax==0.1.5"
 # diffusers 0.12.1 + transformers 4.36 (pre-built tokenizers wheels for Py3.12)
 pip install "diffusers[flax]==0.12.1" "transformers==4.36.2"
 # CPU torch for reward models (CLIP aesthetic scorer etc.)
-pip install "torch==2.2.0+cpu" "torchvision==0.17.0+cpu" \
+# Must be >=2.4.0: JAX 0.9.1 requires numpy>=2.0, and torch<2.4 was compiled against numpy 1.x
+pip install "torch==2.4.0+cpu" "torchvision==0.19.0+cpu" \
     --index-url https://download.pytorch.org/whl/cpu
 
 echo "=== Installing utilities ==="
