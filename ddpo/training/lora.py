@@ -1,6 +1,8 @@
 """LoRA (Low-Rank Adaptation) utilities for JAX/Flax UNet fine-tuning.
 
-Matches the PyTorch reference: rank=4, alpha=4, gaussian init on both A and B.
+Matches the PyTorch reference: rank=4, alpha=4, gaussian init on A, zero init on B.
+Zero-init on B ensures the initial LoRA delta (A @ B = 0) is zero, so training
+starts from the exact pretrained weights.
 Only targets attention projection layers: to_q, to_k, to_v, to_out.
 """
 
@@ -40,15 +42,16 @@ def init_lora_params(frozen_unet_params, rank, rng):
     """Initialize LoRA parameters for all attention projection layers.
 
     Returns a flat dict: {path_str: {"A": array[in_dim, rank], "B": array[rank, out_dim]}}
-    Uses gaussian init (std=0.02) for both A and B, matching PyTorch gaussian init.
+    A: gaussian init (std=0.02). B: zero init. This ensures the initial LoRA delta
+    A @ B = 0, so training starts from the exact pretrained weights.
     """
     lora_params = {}
     for path, kernel in _iter_lora_paths(frozen_unet_params):
         in_dim, out_dim = kernel.shape  # Flax Dense: [in_dim, out_dim]
         key_str = "/".join(str(p) for p in path)
-        rng, rng_a, rng_b = jax.random.split(rng, 3)
+        rng, rng_a = jax.random.split(rng)
         A = jax.random.normal(rng_a, (in_dim, rank), dtype=kernel.dtype) * 0.02
-        B = jax.random.normal(rng_b, (rank, out_dim), dtype=kernel.dtype) * 0.02
+        B = jnp.zeros((rank, out_dim), dtype=kernel.dtype)
         lora_params[key_str] = {"A": A, "B": B}
     print(
         f"[ lora ] initialized {len(lora_params)} LoRA layers | "
