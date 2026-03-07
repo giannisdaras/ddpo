@@ -100,6 +100,15 @@ p_train_step = jax.pmap(
     static_broadcasted_argnums=(3, 4, 5, 6, 7, 8),
 )
 
+# LoRA variant: frozen_unet_params at arg 3 (dynamic/replicated),
+# static args shifted to (4, 5, 6, 7, 8, 9, 10)
+p_train_step_lora = jax.pmap(
+    training.policy_gradient.train_step_lora,
+    axis_name="batch",
+    donate_argnums=0,
+    static_broadcasted_argnums=(4, 5, 6, 7, 8, 9, 10),
+)
+
 
 def main():
     args = Parser().parse_args("pg")
@@ -199,6 +208,22 @@ def main():
         ),
     )
 
+    # ------------------------------- LoRA init --------------------------------#
+    frozen_unet_params = None  # only set when use_lora=True
+    replicated_frozen_unet_params = None
+    lora_scale = 0.0
+
+    if args.use_lora:
+        from ddpo.training.lora import init_lora_params, apply_lora
+        frozen_unet_params = params["unet"]
+        lora_scale = args.lora_alpha / args.lora_rank
+        train_rng, lora_rng = jax.random.split(train_rng)
+        trainable_params = init_lora_params(frozen_unet_params, args.lora_rank, lora_rng)
+        replicated_frozen_unet_params = jax_utils.replicate(frozen_unet_params)
+        print(f"[ policy_gradient ] LoRA enabled | rank={args.lora_rank} | alpha={args.lora_alpha} | scale={lora_scale:.4f}")
+    else:
+        trainable_params = params["unet"]
+
     # ------------------------------- optimizer --------------------------------#
     print("initializing train state...")
     constant_scheduler = optax.constant_schedule(args.learning_rate)
@@ -223,17 +248,17 @@ def main():
         optim,
     )
 
-    opt_state = jax.jit(optimizer.init, backend="cpu")(params["unet"])
+    opt_state = jax.jit(optimizer.init, backend="cpu")(trainable_params)
     # NOTE(kvablack) optax.MultiSteps takes way more memory than necessary; this
     # class is a workaround that requires compiling twice. there may be a better
     # way but this works.
     state = training.policy_gradient.AccumulatingTrainState(
         step=0,
         apply_fn=pipeline.unet.apply,
-        params=params["unet"],
+        params=trainable_params,
         tx=optimizer,
         opt_state=opt_state,
-        grad_acc=jax.tree_map(np.zeros_like, params["unet"]),
+        grad_acc=jax.tree_map(np.zeros_like, trainable_params),
         n_acc=0,
     )
 
@@ -323,10 +348,19 @@ def main():
             sample_prompt_embeds = text_encode(sample_prompt_ids)
 
             timer()
-            sampling_params = {
-                "unet": state.params,
-                "scheduler": sampling_scheduler_params,
-            }
+            if args.use_lora:
+                from ddpo.training.lora import apply_lora
+                cur_lora_params = jax_utils.unreplicate(state).params
+                merged_unet = apply_lora(frozen_unet_params, cur_lora_params, lora_scale)
+                sampling_params = {
+                    "unet": jax_utils.replicate(merged_unet),
+                    "scheduler": sampling_scheduler_params,
+                }
+            else:
+                sampling_params = {
+                    "unet": state.params,
+                    "scheduler": sampling_scheduler_params,
+                }
             # shape (num_devices, sample_batch_size, ...)
             final_latents, latents, next_latents, log_probs, ts = pipeline(
                 shard(sample_prompt_embeds),
@@ -509,17 +543,32 @@ def main():
                     )
                     if do_opt_update:
                         print(f"opt update at {i}, {j}")
-                    state, info = p_train_step(
-                        state,
-                        batch,
-                        noise_scheduler_state,
-                        pipeline.scheduler,
-                        args.train_cfg,
-                        args.guidance_scale,
-                        args.eta,
-                        args.ppo_clip_range,
-                        do_opt_update,
-                    )
+                    if args.use_lora:
+                        state, info = p_train_step_lora(
+                            state,
+                            batch,
+                            noise_scheduler_state,
+                            replicated_frozen_unet_params,
+                            pipeline.scheduler,
+                            args.train_cfg,
+                            args.guidance_scale,
+                            args.eta,
+                            args.ppo_clip_range,
+                            do_opt_update,
+                            lora_scale,
+                        )
+                    else:
+                        state, info = p_train_step(
+                            state,
+                            batch,
+                            noise_scheduler_state,
+                            pipeline.scheduler,
+                            args.train_cfg,
+                            args.guidance_scale,
+                            args.eta,
+                            args.ppo_clip_range,
+                            do_opt_update,
+                        )
                     multihost_utils.assert_equal(info, "infos equal")
                     all_infos.append(
                         jax.tree_map(lambda x: np.mean(jax.device_get(x)), info)
@@ -541,9 +590,15 @@ def main():
                 )
 
         if (epoch + 1) % args.save_freq == 0 or epoch == args.num_train_epochs - 1:
+            if args.use_lora:
+                from ddpo.training.lora import apply_lora
+                cur_lora_params = jax_utils.unreplicate(state).params
+                save_params = apply_lora(frozen_unet_params, cur_lora_params, lora_scale)
+            else:
+                save_params = jax_utils.unreplicate(state.params)
             save_checkpoint_multiprocess(
                 os.path.join(args.savepath, "checkpoints"),
-                jax_utils.unreplicate(state.params),
+                save_params,
                 step=epoch,
                 keep=1e6,
                 overwrite=True,

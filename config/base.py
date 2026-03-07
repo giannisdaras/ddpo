@@ -99,6 +99,10 @@ base = {
         "prompt_kwargs": {},
         "per_prompt_stats_bufsize": 32,
         "per_prompt_stats_min_count": 16,
+        # LoRA (disabled by default; enable to match PyTorch reference)
+        "use_lora": False,
+        "lora_rank": 4,
+        "lora_alpha": 4,
     },
 }
 

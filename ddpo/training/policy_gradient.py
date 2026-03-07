@@ -60,6 +60,91 @@ class AccumulatingTrainState(TrainState):
 ADV_CLIP_MAX = 10.0
 
 
+def train_step_lora(
+    state,
+    batch,
+    noise_scheduler_state,
+    frozen_unet_params,
+    # static arguments below
+    noise_scheduler,
+    train_cfg,
+    guidance_scale,
+    eta,
+    clip_range,
+    # whether to update the optimizer or accumulate gradients
+    do_opt_update,
+    # LoRA scale = alpha / rank
+    lora_scale,
+):
+    """Like train_step but state.params holds LoRA params; frozen_unet_params are frozen.
+
+    Computes merged UNet params = frozen_unet_params + lora_scale * B @ A for each
+    target attention layer, then runs the standard PPO clipped loss.
+    """
+    from ddpo.training.lora import apply_lora
+
+    assert isinstance(state, AccumulatingTrainState)
+    assert isinstance(noise_scheduler, FlaxDDIMScheduler)
+
+    def compute_loss(lora_params):
+        merged = apply_lora(frozen_unet_params, lora_params, lora_scale)
+
+        unet_outputs = state.apply_fn(
+            {"params": merged},
+            batch["latents"],
+            batch["ts"],
+            batch["prompt_embeds"],
+            train=True,
+        )
+
+        if train_cfg:
+            uncond_outputs = state.apply_fn(
+                {"params": merged},
+                batch["latents"],
+                batch["ts"],
+                batch["uncond_embeds"],
+                train=True,
+            )
+            noise_pred = uncond_outputs.sample + guidance_scale * (
+                unet_outputs.sample - uncond_outputs.sample
+            )
+        else:
+            noise_pred = unet_outputs.sample
+
+        _, _, log_prob = noise_scheduler.step(
+            noise_scheduler_state,
+            noise_pred,
+            batch["ts"],
+            batch["latents"],
+            key=None,
+            prev_sample=batch["next_latents"],
+            eta=eta,
+        )
+
+        advantages = jnp.clip(batch["advantages"], -ADV_CLIP_MAX, ADV_CLIP_MAX)
+        ratio = jnp.exp(log_prob - batch["log_probs"])
+        unclipped_loss = -advantages * ratio
+        clipped_loss = -advantages * jnp.clip(ratio, 1.0 - clip_range, 1.0 + clip_range)
+        loss = jnp.mean(jnp.maximum(unclipped_loss, clipped_loss))
+
+        info = {}
+        info["approx_kl"] = 0.5 * jnp.mean((log_prob - batch["log_probs"]) ** 2)
+        info["clipfrac"] = jnp.mean(jnp.abs(ratio - 1.0) > clip_range)
+        info["loss"] = loss
+
+        return loss, info
+
+    grad_fn = jax.grad(compute_loss, has_aux=True)
+    grad, info = grad_fn(state.params)  # grad w.r.t. lora_params only
+
+    grad = jax.lax.pmean(grad, "batch")
+    info = jax.lax.pmean(info, "batch")
+
+    new_state = state.apply_gradients(grads=grad, do_update=do_opt_update)
+
+    return new_state, info
+
+
 def train_step(
     state,
     batch,

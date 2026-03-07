@@ -13,11 +13,27 @@ _pg_trc = {
     "train_accumulation_steps": 8,
     "num_train_epochs": 100,
     "save_freq": 10,
+    # LoRA: match PyTorch reference (rank=4, alpha=4, gaussian init)
+    "use_lora": True,
+    "lora_rank": 4,
+    "lora_alpha": 4,
+    # Match PyTorch DGX per-prompt buffer size
+    "per_prompt_stats_bufsize": 16,
 }
 
 trc_v6e_compressed = {
     "common": {
         "logbase": f"{user.bucket}/logs/trc-v6e-compressed",
+        "prompt_fn": "imagenet_animals",
+        "filter_field": "jpeg",
+    },
+    "pg": _pg_trc,
+}
+
+# LoRA version of compressed — single test run to verify TPU reproduces PyTorch
+trc_v6e_compressed_lora = {
+    "common": {
+        "logbase": f"{user.bucket}/logs/trc-v6e-compressed-lora",
         "prompt_fn": "imagenet_animals",
         "filter_field": "jpeg",
     },
