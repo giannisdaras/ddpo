@@ -2,14 +2,15 @@ from . import user
 from .base import base
 
 # DDPO policy-gradient config tuned for TRC v6e-8 (8 chips, single host)
-# sample_batch_size=4 per device x 8 devices = 32 images/batch
-# train_batch_size=1 per device x 8 devices x train_accumulation_steps=4 = 32 effective
+# sample_batch_size=4 per device x 8 devices = 32 images/batch x 8 batches = 256 samples/epoch
+# train_batch_size=1 per device x 8 devices x train_accumulation_steps=8 = 64 effective train batch
+# Matches PyTorch reference scale: 256 samples/epoch, 64 effective train batch
 
 _pg_trc = {
     "sample_batch_size": 4,
-    "num_sample_batches_per_epoch": 2,
+    "num_sample_batches_per_epoch": 8,
     "train_batch_size": 1,
-    "train_accumulation_steps": 4,
+    "train_accumulation_steps": 8,
     "num_train_epochs": 100,
     "save_freq": 10,
 }
