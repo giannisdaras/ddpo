@@ -217,7 +217,7 @@ def main():
         from ddpo.training.lora import init_lora_params, apply_lora
         frozen_unet_params = params["unet"]
         lora_scale = args.lora_alpha / args.lora_rank
-        train_rng, lora_rng = jax.random.split(train_rng)
+        rng, lora_rng = jax.random.split(rng)
         trainable_params = init_lora_params(frozen_unet_params, args.lora_rank, lora_rng)
         replicated_frozen_unet_params = jax_utils.replicate(frozen_unet_params)
         print(f"[ policy_gradient ] LoRA enabled | rank={args.lora_rank} | alpha={args.lora_alpha} | scale={lora_scale:.4f}")
