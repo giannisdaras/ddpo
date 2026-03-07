@@ -58,3 +58,39 @@ trc_v6e_hue_diversity = {
     },
     "pg": _pg_trc,
 }
+
+trc_v6e_color_temperature = {
+    "common": {
+        "logbase": f"{user.bucket}/logs/trc-v6e-color-temperature",
+        "prompt_fn": "imagenet_animals",
+        "filter_field": "color_temperature",
+    },
+    "pg": _pg_trc,
+}
+
+trc_v6e_fourier_smoothness = {
+    "common": {
+        "logbase": f"{user.bucket}/logs/trc-v6e-fourier-smoothness",
+        "prompt_fn": "imagenet_animals",
+        "filter_field": "fourier_smoothness",
+    },
+    "pg": _pg_trc,
+}
+
+trc_v6e_local_contrast = {
+    "common": {
+        "logbase": f"{user.bucket}/logs/trc-v6e-local-contrast",
+        "prompt_fn": "imagenet_animals",
+        "filter_field": "local_contrast",
+    },
+    "pg": _pg_trc,
+}
+
+trc_v6e_gradient_orientation_entropy = {
+    "common": {
+        "logbase": f"{user.bucket}/logs/trc-v6e-gradient-orientation-entropy",
+        "prompt_fn": "imagenet_animals",
+        "filter_field": "gradient_orientation_entropy",
+    },
+    "pg": _pg_trc,
+}

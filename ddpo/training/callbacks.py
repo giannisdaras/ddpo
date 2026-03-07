@@ -344,6 +344,116 @@ def thumbnail_fn(devices=DEVICES, jit=True):
     return _wrapper
 
 
+def color_temperature_fn(devices=DEVICES, jit=False):
+    """Maximize fraction of pixels with warm hues (red/orange/yellow: hue in [0,60] or [300,360] degrees)."""
+    assert not jit
+
+    def _fn(images, prompts, metadata):
+        del prompts, metadata
+        # images: [N, H, W, 3] float32 in [0, 1]
+        r, g, b = images[..., 0], images[..., 1], images[..., 2]
+        cmax = np.maximum(np.maximum(r, g), b)
+        cmin = np.minimum(np.minimum(r, g), b)
+        delta = cmax - cmin
+
+        hue = np.zeros_like(r)
+        mask = delta > 1e-6
+        mask_r = mask & (cmax == r)
+        mask_g = mask & (cmax == g)
+        mask_b = mask & (cmax == b)
+        hue[mask_r] = (60.0 * ((g[mask_r] - b[mask_r]) / delta[mask_r])) % 360
+        hue[mask_g] = (60.0 * ((b[mask_g] - r[mask_g]) / delta[mask_g]) + 120)
+        hue[mask_b] = (60.0 * ((r[mask_b] - g[mask_b]) / delta[mask_b]) + 240)
+        hue = hue % 360
+
+        sat = np.where(cmax > 1e-6, delta / cmax, 0.0)
+        saturated = sat > 0.15
+
+        warm = saturated & ((hue <= 60) | (hue >= 300))
+        scores = warm.mean(axis=(1, 2))
+        return scores[:, None], {}
+
+    return _fn
+
+
+def fourier_smoothness_fn(devices=DEVICES, jit=False):
+    """Maximize ratio of low-frequency Fourier energy (encourages smooth, painterly images)."""
+    assert not jit
+
+    def _fn(images, prompts, metadata):
+        del prompts, metadata
+        # images: [N, H, W, 3] float32 in [0, 1]
+        gray = 0.299 * images[..., 0] + 0.587 * images[..., 1] + 0.114 * images[..., 2]
+        scores = []
+        for img in gray:
+            F = np.fft.fft2(img)
+            power = np.abs(np.fft.fftshift(F)) ** 2
+            H, W = img.shape
+            cy, cx = H // 2, W // 2
+            radius = min(H, W) // 8  # low-freq region: inner 1/8 of spectrum
+            y, x = np.ogrid[:H, :W]
+            low_mask = (y - cy) ** 2 + (x - cx) ** 2 <= radius ** 2
+            low_energy = power[low_mask].sum()
+            total_energy = power.sum() + 1e-8
+            scores.append(low_energy / total_energy)
+        return np.array(scores)[:, None], {}
+
+    return _fn
+
+
+def local_contrast_fn(devices=DEVICES, jit=False):
+    """Maximize mean local standard deviation (rich local tonal variation)."""
+    assert not jit
+
+    def _fn(images, prompts, metadata):
+        del prompts, metadata
+        # images: [N, H, W, 3] float32 in [0, 1]
+        gray = 0.299 * images[..., 0] + 0.587 * images[..., 1] + 0.114 * images[..., 2]
+        patch = 16
+        scores = []
+        for img in gray:
+            H, W = img.shape
+            stds = []
+            for i in range(0, H - patch + 1, patch):
+                for j in range(0, W - patch + 1, patch):
+                    stds.append(img[i:i+patch, j:j+patch].std())
+            scores.append(np.mean(stds))
+        return np.array(scores)[:, None], {}
+
+    return _fn
+
+
+def gradient_orientation_entropy_fn(devices=DEVICES, jit=False):
+    """Maximize entropy of gradient orientation histogram (diverse edge directions = complex structure)."""
+    assert not jit
+
+    def _fn(images, prompts, metadata):
+        del prompts, metadata
+        # images: [N, H, W, 3] float32 in [0, 1]
+        gray = 0.299 * images[..., 0] + 0.587 * images[..., 1] + 0.114 * images[..., 2]
+        scores = []
+        for img in gray:
+            gy = np.gradient(img, axis=0)
+            gx = np.gradient(img, axis=1)
+            magnitude = np.sqrt(gx**2 + gy**2)
+            angle = (np.arctan2(gy, gx) * 180 / np.pi) % 180  # 0-180 degrees
+
+            strong = magnitude > magnitude.mean()
+            if strong.any():
+                bins = np.linspace(0, 180, 37)
+                counts, _ = np.histogram(angle[strong], bins=bins)
+            else:
+                counts = np.ones(36)
+            counts = counts.astype(np.float64)
+            probs = counts / (counts.sum() + 1e-8)
+            probs = probs[probs > 0]
+            ent = -np.sum(probs * np.log2(probs))
+            scores.append(ent)
+        return np.array(scores)[:, None], {}
+
+    return _fn
+
+
 def brightness_fn(devices=DEVICES, jit=False):
     """Maximize mean luminance (ITU-R BT.601 Y channel)."""
     assert not jit
@@ -654,6 +764,10 @@ callback_fns = {
     "saturation": saturation_fn,
     "entropy": entropy_fn,
     "hue_diversity": hue_diversity_fn,
+    "color_temperature": color_temperature_fn,
+    "fourier_smoothness": fourier_smoothness_fn,
+    "local_contrast": local_contrast_fn,
+    "gradient_orientation_entropy": gradient_orientation_entropy_fn,
     "arange": arange_fn,
     "vqa": vqa_satisfaction,
     "llava_vqa": llava_vqa_satisfaction,
